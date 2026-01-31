@@ -1,0 +1,38 @@
+# Polymarket Monitor Configuration
+
+[general]
+dry_run = true
+snapshot_rate_hz = 1
+
+[binance]
+# Using Binance.US endpoints (change to binance.com for non-US)
+ws_url = "wss://stream.binance.us:9443/ws/btcusd@depth@100ms"
+rest_url = "https://api.binance.us/api/v3/depth"
+symbol = "BTCUSD"
+snapshot_limit = 1000
+
+[polymarket]
+ws_url = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+rest_url = "https://clob.polymarket.com"
+# Hardcoded token IDs for BTC 15-min market (to be updated with actual values)
+yes_token_id = "placeholder_yes_token_id"
+no_token_id = "placeholder_no_token_id"
+condition_id = "placeholder_condition_id"
+
+[trading]
+default_size = 10.0
+max_size = 100.0
+max_price_yes = 0.95
+max_price_no = 0.95
+max_spread = 0.10
+stale_quote_threshold_ms = 5000
+
+[signal]
+binance_return_threshold_1s = 0.001
+binance_return_threshold_3s = 0.002
+poly_lag_threshold_ms = 500
+min_confidence = 0.5
+
+[logging]
+log_dir = "data/logs"
+rotation = "daily"

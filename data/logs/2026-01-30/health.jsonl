@@ -1,0 +1,2 @@
+{"t_recv_ms":1769833838486,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769833838486,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
