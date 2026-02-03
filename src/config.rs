@@ -29,8 +29,23 @@ pub struct BinanceConfig {
 pub struct PolymarketConfig {
     pub ws_url: String,
     pub rest_url: String,
+    pub gamma_url: String,
+    pub btc_15m_event_id: String,
+    // API credentials (loaded from environment)
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default)]
+    pub api_secret: String,
+    #[serde(default)]
+    pub passphrase: String,
+    #[serde(default)]
+    pub wallet_address: String,
+    // These are now fetched dynamically, kept for fallback
+    #[serde(default)]
     pub yes_token_id: String,
+    #[serde(default)]
     pub no_token_id: String,
+    #[serde(default)]
     pub condition_id: String,
 }
 
@@ -62,7 +77,11 @@ impl Config {
     pub fn load() -> Result<Self> {
         let settings = config::Config::builder()
             .add_source(config::File::with_name("config/default"))
-            .add_source(config::Environment::with_prefix("POLY"))
+            .add_source(
+                config::Environment::with_prefix("POLY")
+                    .separator("__")
+                    .try_parsing(true)
+            )
             .build()?;
 
         let config: Config = settings.try_deserialize()?;

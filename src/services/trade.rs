@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use parking_lot::RwLock;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -7,6 +8,32 @@ use crate::config::TradingConfig;
 use crate::events::{TradeEvent, TradeSide};
 use crate::logger::JsonlLogger;
 use crate::services::PolymarketService;
+use super::clob::{ClobClient, ClobCredentials, OrderRequest};
+
+/// A single user action for display in the TUI action log.
+#[derive(Debug, Clone)]
+pub struct ActionLogEntry {
+    pub timestamp_ms: i64,
+    pub description: String,
+}
+
+impl ActionLogEntry {
+    pub fn now(description: impl Into<String>) -> Self {
+        Self {
+            timestamp_ms: chrono::Utc::now().timestamp_millis(),
+            description: description.into(),
+        }
+    }
+
+    /// Format for display: "HH:MM:SS | description"
+    pub fn format_short(&self) -> String {
+        let dt = chrono::DateTime::from_timestamp_millis(self.timestamp_ms)
+            .unwrap_or_else(chrono::Utc::now);
+        format!("{} | {}", dt.format("%H:%M:%S"), self.description)
+    }
+}
+
+const ACTION_LOG_CAP: usize = 100;
 
 #[derive(Debug, Clone)]
 pub struct TradingState {
@@ -36,8 +63,10 @@ pub enum RiskCheckResult {
 pub struct TradeService {
     config: TradingConfig,
     polymarket: Arc<PolymarketService>,
+    clob_client: ClobClient,
     logger: Arc<JsonlLogger>,
     state: Arc<RwLock<TradingState>>,
+    action_log: Arc<RwLock<VecDeque<ActionLogEntry>>>,
     dry_run: bool,
 }
 
@@ -45,17 +74,34 @@ impl TradeService {
     pub fn new(
         config: TradingConfig,
         polymarket: Arc<PolymarketService>,
+        credentials: Option<ClobCredentials>,
         logger: Arc<JsonlLogger>,
         dry_run: bool,
     ) -> Self {
         let state = TradingState::new(&config);
+        let clob_client = ClobClient::new(credentials);
         Self {
             config,
             polymarket,
+            clob_client,
             logger,
             state: Arc::new(RwLock::new(state)),
+            action_log: Arc::new(RwLock::new(VecDeque::with_capacity(ACTION_LOG_CAP))),
             dry_run,
         }
+    }
+
+    fn record_action(&self, entry: ActionLogEntry) {
+        let mut log = self.action_log.write();
+        if log.len() >= ACTION_LOG_CAP {
+            log.pop_front();
+        }
+        log.push_back(entry);
+    }
+
+    /// Returns a clone of recent action log entries (newest last).
+    pub fn get_action_log(&self) -> Vec<ActionLogEntry> {
+        self.action_log.read().iter().cloned().collect()
     }
 
     pub fn get_state(&self) -> TradingState {
@@ -65,6 +111,8 @@ impl TradeService {
     pub fn toggle_kill_switch(&self) {
         let mut state = self.state.write();
         state.kill_switch_active = !state.kill_switch_active;
+        let label = if state.kill_switch_active { "ON" } else { "OFF" };
+        self.record_action(ActionLogEntry::now(format!("Kill switch → {}", label)));
         tracing::info!("Kill switch: {}", if state.kill_switch_active { "ACTIVE" } else { "OFF" });
     }
 
@@ -77,6 +125,12 @@ impl TradeService {
         let mut state = self.state.write();
         let new_size = (state.current_size + delta).max(1.0).min(self.config.max_size);
         state.current_size = new_size;
+        self.record_action(ActionLogEntry::now(format!(
+            "Size {} {} → {:.1}",
+            if delta >= 0.0 { "+" } else { "" },
+            delta,
+            new_size
+        )));
         tracing::info!("Size adjusted to: {}", new_size);
     }
 
@@ -85,10 +139,22 @@ impl TradeService {
         match side {
             TradeSide::Yes => {
                 state.max_price_yes = (state.max_price_yes + delta).clamp(0.01, 0.99);
+                self.record_action(ActionLogEntry::now(format!(
+                    "Max YES price {} {} → {:.2}",
+                    if delta >= 0.0 { "+" } else { "" },
+                    delta,
+                    state.max_price_yes
+                )));
                 tracing::info!("Max YES price adjusted to: {}", state.max_price_yes);
             }
             TradeSide::No => {
                 state.max_price_no = (state.max_price_no + delta).clamp(0.01, 0.99);
+                self.record_action(ActionLogEntry::now(format!(
+                    "Max NO price {} {} → {:.2}",
+                    if delta >= 0.0 { "+" } else { "" },
+                    delta,
+                    state.max_price_no
+                )));
                 tracing::info!("Max NO price adjusted to: {}", state.max_price_no);
             }
         }
@@ -154,11 +220,22 @@ impl TradeService {
         let client_order_id = Uuid::new_v4().to_string();
         let state = self.state.read();
         let size = state.current_size;
-        let limit_price = match side {
-            TradeSide::Yes => state.max_price_yes,
-            TradeSide::No => state.max_price_no,
-        };
+        let max_price_yes = state.max_price_yes;
+        let max_price_no = state.max_price_no;
         drop(state);
+
+        // Use current market (best ask) as order price, capped by max price
+        let quotes = self.polymarket.get_quote_state();
+        let limit_price = match side {
+            TradeSide::Yes => quotes
+                .yes_ask
+                .map(|ask| ask.min(max_price_yes))
+                .unwrap_or(max_price_yes),
+            TradeSide::No => quotes
+                .no_ask
+                .map(|ask| ask.min(max_price_no))
+                .unwrap_or(max_price_no),
+        };
 
         // Risk check
         let risk_result = self.check_risk(side, size, limit_price);
@@ -181,6 +258,10 @@ impl TradeService {
             RiskCheckResult::Rejected(reason) => {
                 trade_event.risk_reject_reason = Some(reason.clone());
                 trade_event.t_resp_ms = Some(chrono::Utc::now().timestamp_millis());
+                self.record_action(ActionLogEntry::now(format!(
+                    "Buy {} @ {:.2} size {:.0} → rejected: {}",
+                    side, limit_price, size, reason
+                )));
                 self.logger.log_trade(trade_event.clone())?;
                 return Err(anyhow!("Order rejected: {}", reason));
             }
@@ -191,6 +272,10 @@ impl TradeService {
             // Dry run - just log the intent
             trade_event.api_status = Some("dry_run_success".to_string());
             trade_event.t_resp_ms = Some(chrono::Utc::now().timestamp_millis());
+            self.record_action(ActionLogEntry::now(format!(
+                "Buy {} @ {:.2} size {:.0} → dry_run",
+                side, limit_price, size
+            )));
             self.logger.log_trade(trade_event.clone())?;
             tracing::info!(
                 "[DRY RUN] Order: {} {} @ {} (size: {})",
@@ -202,14 +287,83 @@ impl TradeService {
             return Ok(trade_event);
         }
 
-        // Live mode - would call Polymarket API here
-        // For now, just log that live trading is not yet implemented
-        trade_event.api_status = Some("live_not_implemented".to_string());
-        trade_event.t_resp_ms = Some(chrono::Utc::now().timestamp_millis());
-        self.logger.log_trade(trade_event.clone())?;
-        tracing::warn!("[LIVE] Order placement not implemented yet");
+        // Live mode - place order via CLOB API
+        let active_market = self.polymarket.get_active_market();
 
-        Ok(trade_event)
+        // Get the appropriate token ID based on side
+        // For BTC Up/Down markets: Yes = Up, No = Down
+        let token_id = match side {
+            TradeSide::Yes => &active_market.up_token_id,
+            TradeSide::No => &active_market.down_token_id,
+        };
+
+        if token_id.is_empty() {
+            trade_event.api_status = Some("no_active_market".to_string());
+            trade_event.t_resp_ms = Some(chrono::Utc::now().timestamp_millis());
+            self.record_action(ActionLogEntry::now(format!(
+                "Buy {} @ {:.2} size {:.0} → no active market",
+                side, limit_price, size
+            )));
+            self.logger.log_trade(trade_event.clone())?;
+            return Err(anyhow!("No active market - token ID not available"));
+        }
+
+        // Live: send BUY for the chosen token (Yes=Up, No=Down). We never send SELL.
+        let order_request = OrderRequest {
+            token_id: token_id.clone(),
+            price: format!("{:.2}", limit_price),
+            size: format!("{:.0}", size),
+            side: "BUY".to_string(),
+            order_type: "GTC".to_string(), // Good Till Cancelled
+            expiration: None,
+        };
+
+        tracing::info!(
+            "[LIVE] Placing BUY order: side={} @ {} size {} (token {}...)",
+            side,
+            limit_price,
+            size,
+            &token_id[..20.min(token_id.len())]
+        );
+
+        match self.clob_client.place_order(order_request).await {
+            Ok(response) => {
+                trade_event.t_resp_ms = Some(chrono::Utc::now().timestamp_millis());
+
+                if response.success {
+                    trade_event.api_status = Some("success".to_string());
+                    self.record_action(ActionLogEntry::now(format!(
+                        "Buy {} @ {:.2} size {:.0} → success",
+                        side, limit_price, size
+                    )));
+                    if let Some(order_id) = &response.order_id {
+                        tracing::info!("[LIVE] Order placed successfully: {}", order_id);
+                    }
+                } else {
+                    let error_msg = response.error_msg.unwrap_or_else(|| "Unknown error".to_string());
+                    trade_event.api_status = Some(format!("error: {}", error_msg));
+                    self.record_action(ActionLogEntry::now(format!(
+                        "Buy {} @ {:.2} size {:.0} → error: {}",
+                        side, limit_price, size, error_msg
+                    )));
+                    tracing::error!("[LIVE] Order failed: {}", error_msg);
+                }
+
+                self.logger.log_trade(trade_event.clone())?;
+                Ok(trade_event)
+            }
+            Err(e) => {
+                trade_event.t_resp_ms = Some(chrono::Utc::now().timestamp_millis());
+                trade_event.api_status = Some(format!("error: {}", e));
+                self.record_action(ActionLogEntry::now(format!(
+                    "Buy {} @ {:.2} size {:.0} → error: {}",
+                    side, limit_price, size, e
+                )));
+                self.logger.log_trade(trade_event.clone())?;
+                tracing::error!("[LIVE] Order error: {:?}", e);
+                Err(e)
+            }
+        }
     }
 }
 
@@ -234,6 +388,8 @@ mod tests {
         PolymarketConfig {
             ws_url: "wss://test".to_string(),
             rest_url: "https://test".to_string(),
+            gamma_url: "https://gamma-api.polymarket.com".to_string(),
+            btc_15m_event_id: "194059".to_string(),
             yes_token_id: "yes".to_string(),
             no_token_id: "no".to_string(),
             condition_id: "cond".to_string(),
@@ -255,7 +411,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let logger = crate::logger::JsonlLogger::new(dir.path().to_str().unwrap()).unwrap();
         let poly = Arc::new(PolymarketService::new(make_poly_config()));
-        let trade = TradeService::new(make_test_config(), poly, logger, true);
+        let trade = TradeService::new(make_test_config(), poly, None, logger, true);
 
         assert!(!trade.get_state().kill_switch_active);
         trade.toggle_kill_switch();
@@ -269,7 +425,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let logger = crate::logger::JsonlLogger::new(dir.path().to_str().unwrap()).unwrap();
         let poly = Arc::new(PolymarketService::new(make_poly_config()));
-        let trade = TradeService::new(make_test_config(), poly, logger, true);
+        let trade = TradeService::new(make_test_config(), poly, None, logger, true);
 
         assert_eq!(trade.get_state().current_size, 10.0);
         trade.adjust_size(5.0);
@@ -285,7 +441,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let logger = crate::logger::JsonlLogger::new(dir.path().to_str().unwrap()).unwrap();
         let poly = Arc::new(PolymarketService::new(make_poly_config()));
-        let trade = TradeService::new(make_test_config(), poly, logger, true);
+        let trade = TradeService::new(make_test_config(), poly, None, logger, true);
 
         assert!((trade.get_state().max_price_yes - 0.95).abs() < 0.001);
         trade.adjust_max_price(TradeSide::Yes, -0.05);

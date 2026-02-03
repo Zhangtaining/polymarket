@@ -178,6 +178,8 @@ mod tests {
         PolymarketConfig {
             ws_url: "wss://test".to_string(),
             rest_url: "https://test".to_string(),
+            gamma_url: "https://gamma-api.polymarket.com".to_string(),
+            btc_15m_event_id: "194059".to_string(),
             yes_token_id: "yes".to_string(),
             no_token_id: "no".to_string(),
             condition_id: "cond".to_string(),

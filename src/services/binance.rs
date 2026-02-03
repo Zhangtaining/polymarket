@@ -235,6 +235,46 @@ impl BinanceBookService {
         ret.to_string().parse().ok()
     }
 
+    /// Calculate standard deviation of prices over the lookback period
+    pub fn get_std_dev(&self, lookback_ms: i64) -> Option<f64> {
+        let history = self.mid_history.read();
+        if history.len() < 2 {
+            return None;
+        }
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let cutoff = now - lookback_ms;
+
+        // Collect prices within lookback window
+        let prices: Vec<f64> = history
+            .iter()
+            .filter(|(ts, _)| *ts >= cutoff)
+            .filter_map(|(_, p)| p.to_string().parse::<f64>().ok())
+            .collect();
+
+        if prices.len() < 2 {
+            return None;
+        }
+
+        // Calculate mean
+        let mean: f64 = prices.iter().sum::<f64>() / prices.len() as f64;
+
+        // Calculate variance
+        let variance: f64 = prices
+            .iter()
+            .map(|p| (p - mean).powi(2))
+            .sum::<f64>()
+            / (prices.len() - 1) as f64; // Sample std dev
+
+        Some(variance.sqrt())
+    }
+
+    /// Get the current mid price
+    pub fn get_mid_price(&self) -> Option<f64> {
+        let book = self.book.read();
+        book.mid().and_then(|m| m.to_string().parse().ok())
+    }
+
     async fn fetch_snapshot(&self) -> Result<DepthSnapshot> {
         let url = format!(
             "{}?symbol={}&limit={}",

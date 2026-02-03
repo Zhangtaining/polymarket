@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotEvent {
     pub t_recv_ms: i64,
+    // Binance data
     pub binance_mid: Option<f64>,
     pub binance_best_bid: Option<f64>,
     pub binance_best_ask: Option<f64>,
@@ -11,6 +12,8 @@ pub struct SnapshotEvent {
     pub binance_ret_3s: Option<f64>,
     pub binance_ret_10s: Option<f64>,
     pub binance_obi_top5: Option<f64>,
+    pub binance_std_5m: Option<f64>,      // 5-minute price std dev
+    // Polymarket data
     pub poly_yes_bid: Option<f64>,
     pub poly_yes_ask: Option<f64>,
     pub poly_no_bid: Option<f64>,
@@ -18,6 +21,9 @@ pub struct SnapshotEvent {
     pub poly_spread_yes: Option<f64>,
     pub poly_spread_no: Option<f64>,
     pub poly_stale_ms: Option<i64>,
+    pub poly_target_price: Option<f64>,   // BTC price at window start
+    pub poly_remaining_secs: Option<i64>, // Seconds until window ends
+    // Signal
     pub signal_side: String,
     pub signal_score: f64,
 }
@@ -33,6 +39,7 @@ impl Default for SnapshotEvent {
             binance_ret_3s: None,
             binance_ret_10s: None,
             binance_obi_top5: None,
+            binance_std_5m: None,
             poly_yes_bid: None,
             poly_yes_ask: None,
             poly_no_bid: None,
@@ -40,6 +47,8 @@ impl Default for SnapshotEvent {
             poly_spread_yes: None,
             poly_spread_no: None,
             poly_stale_ms: None,
+            poly_target_price: None,
+            poly_remaining_secs: None,
             signal_side: "NONE".to_string(),
             signal_score: 0.0,
         }

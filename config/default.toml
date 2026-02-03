@@ -14,10 +14,15 @@ snapshot_limit = 1000
 [polymarket]
 ws_url = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 rest_url = "https://clob.polymarket.com"
-# Hardcoded token IDs for BTC 15-min market (to be updated with actual values)
-yes_token_id = "placeholder_yes_token_id"
-no_token_id = "placeholder_no_token_id"
-condition_id = "placeholder_condition_id"
+gamma_url = "https://gamma-api.polymarket.com"
+# BTC 15-minute market event ID (stable - used to fetch dynamic token IDs)
+btc_15m_event_id = "194059"
+# API credentials - loaded from environment variables
+# POLY__POLYMARKET__API_KEY, POLY__POLYMARKET__API_SECRET, POLY__POLYMARKET__PASSPHRASE, POLY__POLYMARKET__WALLET_ADDRESS
+api_key = ""
+api_secret = ""
+passphrase = ""
+wallet_address = ""
 
 [trading]
 default_size = 10.0

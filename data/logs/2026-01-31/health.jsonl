@@ -1,0 +1,40 @@
+{"t_recv_ms":1769870047075,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769870047075,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769870117323,"event_type":"shutdown","message":"Graceful shutdown","component":"main"}
+{"t_recv_ms":1769870255426,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769870255426,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769870285602,"event_type":"shutdown","message":"Graceful shutdown","component":"main"}
+{"t_recv_ms":1769871161497,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769871161497,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769871263565,"event_type":"shutdown","message":"Graceful shutdown","component":"main"}
+{"t_recv_ms":1769872896596,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769872896596,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769879680929,"event_type":"shutdown","message":"Graceful shutdown","component":"main"}
+{"t_recv_ms":1769900307086,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769900307087,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769900332508,"event_type":"shutdown","message":"Graceful shutdown","component":"main"}
+{"t_recv_ms":1769907183839,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769907183840,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769909600660,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769909600660,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769910391255,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769910391255,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769910750461,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769910750461,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769910762362,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769910762362,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769910821955,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769910821955,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769910872448,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769910872448,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769910971430,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769910971430,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769911242466,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769911242466,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769911450052,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769911450052,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769911564570,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769911564571,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
+{"t_recv_ms":1769911607496,"event_type":"shutdown","message":"Graceful shutdown","component":"main"}
+{"t_recv_ms":1769921240238,"event_type":"startup","message":"Logger initialized","component":"logger"}
+{"t_recv_ms":1769921240238,"event_type":"startup","message":"Starting in dry_run mode","component":"main"}
