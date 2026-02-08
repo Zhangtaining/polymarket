@@ -113,10 +113,10 @@ impl ClobClient {
         let timestamp = chrono::Utc::now().timestamp().to_string();
         let signature = self.sign_request(&timestamp, method, path, body)?;
 
-        tracing::debug!(
-            "Auth headers: POLY_API_KEY={}...{}, POLY_ADDRESS={}, timestamp={}",
-            &creds.api_key[..8.min(creds.api_key.len())],
-            &creds.api_key[creds.api_key.len().saturating_sub(4)..],
+        tracing::warn!(
+            "DEBUG AUTH: POLY_API_KEY={}, POLY_PASSPHRASE={}, POLY_ADDRESS={}, timestamp={}",
+            &creds.api_key,
+            &creds.passphrase,
             &creds.wallet_address,
             &timestamp
         );
