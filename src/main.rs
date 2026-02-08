@@ -97,6 +97,8 @@ async fn main() -> Result<()> {
         && !config.polymarket.wallet_address.is_empty()
     {
         tracing::info!("CLOB API credentials configured (wallet: {})", &config.polymarket.wallet_address);
+        tracing::info!("  API key: {}...{}", &config.polymarket.api_key[..8], &config.polymarket.api_key[config.polymarket.api_key.len().saturating_sub(4)..]);
+        tracing::info!("  Passphrase: {}...", &config.polymarket.passphrase[..8]);
         Some(ClobCredentials {
             api_key: config.polymarket.api_key.clone(),
             secret: config.polymarket.api_secret.clone(),
