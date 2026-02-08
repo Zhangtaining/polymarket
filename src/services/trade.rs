@@ -340,7 +340,28 @@ impl TradeService {
                         tracing::info!("[LIVE] Order placed successfully: {}", order_id);
                     }
                 } else {
-                    let error_msg = response.error_msg.unwrap_or_else(|| "Unknown error".to_string());
+                    let error_msg = if let Some(msg) = &response.error_msg {
+                        msg.clone()
+                    } else {
+                        // Build a detailed message from available fields
+                        let mut parts = Vec::new();
+                        if let Some(status) = &response.status {
+                            parts.push(format!("status={}", status));
+                        }
+                        if let Some(http) = response.http_status {
+                            parts.push(format!("http={}", http));
+                        }
+                        if let Some(raw) = &response.raw_body {
+                            // Truncate raw body for display
+                            let truncated = if raw.len() > 200 { &raw[..200] } else { raw.as_str() };
+                            parts.push(format!("body={}", truncated));
+                        }
+                        if parts.is_empty() {
+                            "Unknown error (no details in API response)".to_string()
+                        } else {
+                            parts.join(", ")
+                        }
+                    };
                     trade_event.api_status = Some(format!("error: {}", error_msg));
                     self.record_action(ActionLogEntry::now(format!(
                         "Buy {} @ {:.2} size {:.0} → error: {}",

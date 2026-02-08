@@ -36,6 +36,12 @@ pub struct OrderResponse {
     pub error_msg: Option<String>,
     #[serde(default)]
     pub success: bool,
+    /// HTTP status code (populated after deserialization)
+    #[serde(skip)]
+    pub http_status: Option<u16>,
+    /// Raw response body for debugging (populated after deserialization)
+    #[serde(skip)]
+    pub raw_body: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -191,14 +197,19 @@ impl ClobClient {
 
         if !status.is_success() {
             // Try to parse error response
-            if let Ok(err_resp) = serde_json::from_str::<OrderResponse>(&response_text) {
+            if let Ok(mut err_resp) = serde_json::from_str::<OrderResponse>(&response_text) {
+                err_resp.http_status = Some(status.as_u16());
+                err_resp.raw_body = Some(response_text);
                 return Ok(err_resp);
             }
             anyhow::bail!("Order request failed: {} - {}", status, response_text);
         }
 
-        serde_json::from_str(&response_text)
-            .context("Failed to parse order response")
+        let mut resp: OrderResponse = serde_json::from_str(&response_text)
+            .context("Failed to parse order response")?;
+        resp.http_status = Some(status.as_u16());
+        resp.raw_body = Some(response_text);
+        Ok(resp)
     }
 
     /// Cancel an order
