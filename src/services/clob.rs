@@ -83,9 +83,9 @@ impl ClobClient {
         // Message format: timestamp + method + path + body
         let message = format!("{}{}{}{}", timestamp, method, path, body);
 
-        // Decode base64 secret
-        use base64::{engine::general_purpose::STANDARD, Engine};
-        let secret_bytes = STANDARD.decode(&creds.secret)
+        // Decode URL-safe base64 secret (Polymarket uses URL-safe base64)
+        use base64::{engine::general_purpose::URL_SAFE, Engine};
+        let secret_bytes = URL_SAFE.decode(&creds.secret)
             .context("Failed to decode API secret")?;
 
         // Create HMAC
@@ -93,9 +93,9 @@ impl ClobClient {
             .context("Invalid HMAC key length")?;
         mac.update(message.as_bytes());
 
-        // Get signature and base64 encode
+        // Get signature and URL-safe base64 encode
         let result = mac.finalize();
-        let signature = STANDARD.encode(result.into_bytes());
+        let signature = URL_SAFE.encode(result.into_bytes());
 
         Ok(signature)
     }
