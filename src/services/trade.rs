@@ -68,6 +68,7 @@ pub struct TradeService {
     state: Arc<RwLock<TradingState>>,
     action_log: Arc<RwLock<VecDeque<ActionLogEntry>>>,
     dry_run: bool,
+    credentials_debug: Option<ClobCredentials>,
 }
 
 impl TradeService {
@@ -79,6 +80,7 @@ impl TradeService {
         dry_run: bool,
     ) -> Self {
         let state = TradingState::new(&config);
+        let credentials_debug = credentials.clone();
         let clob_client = ClobClient::new(credentials);
         Self {
             config,
@@ -88,6 +90,21 @@ impl TradeService {
             state: Arc::new(RwLock::new(state)),
             action_log: Arc::new(RwLock::new(VecDeque::with_capacity(ACTION_LOG_CAP))),
             dry_run,
+            credentials_debug,
+        }
+    }
+
+    /// Format loaded credentials for debugging display in the action log.
+    fn credentials_debug_string(&self) -> String {
+        match &self.credentials_debug {
+            Some(creds) => format!(
+                "ENV: api_key={}, secret={}..., passphrase={}..., wallet={}",
+                creds.api_key,
+                &creds.secret[..creds.secret.len().min(12)],
+                &creds.passphrase[..creds.passphrase.len().min(12)],
+                creds.wallet_address,
+            ),
+            None => "ENV: <no credentials loaded>".to_string(),
         }
     }
 
@@ -367,6 +384,7 @@ impl TradeService {
                         "Buy {} @ {:.2} size {:.0} → error: {}",
                         side, limit_price, size, error_msg
                     )));
+                    self.record_action(ActionLogEntry::now(self.credentials_debug_string()));
                     tracing::error!("[LIVE] Order failed: {}", error_msg);
                 }
 
@@ -380,6 +398,7 @@ impl TradeService {
                     "Buy {} @ {:.2} size {:.0} → error: {}",
                     side, limit_price, size, e
                 )));
+                self.record_action(ActionLogEntry::now(self.credentials_debug_string()));
                 self.logger.log_trade(trade_event.clone())?;
                 tracing::error!("[LIVE] Order error: {:?}", e);
                 Err(e)
