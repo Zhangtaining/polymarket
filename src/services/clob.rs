@@ -144,46 +144,94 @@ impl ClobClient {
         Ok(builder)
     }
 
-    /// Lightweight auth check: call GET /api-keys to verify credentials work.
-    /// Returns Ok(response_body) on success, or the error details on failure.
+    /// Run a multi-step auth diagnostic at startup.
     pub async fn check_auth(&self) -> Result<String> {
         let creds = self.credentials.as_ref().context("No credentials configured")?;
+        let mut results = Vec::new();
 
-        // GET /api-keys is a simple authenticated endpoint
+        // Step 1: Public endpoint — verify connectivity
+        tracing::info!("[AUTH DIAG] Step 1: Testing connectivity (GET /time)...");
+        let resp = self.client
+            .get(format!("{}/time", CLOB_API_BASE))
+            .send()
+            .await;
+        match resp {
+            Ok(r) => {
+                let status = r.status();
+                let body = r.text().await.unwrap_or_default();
+                tracing::info!("[AUTH DIAG] GET /time -> HTTP {} body={}", status, &body[..body.len().min(200)]);
+                results.push(format!("connectivity: OK ({})", status));
+            }
+            Err(e) => {
+                tracing::error!("[AUTH DIAG] GET /time -> FAILED: {:?}", e);
+                results.push(format!("connectivity: FAILED ({})", e));
+            }
+        }
+
+        // Step 2: Authenticated endpoint — verify HMAC credentials
+        tracing::info!("[AUTH DIAG] Step 2: Testing L2 auth (GET /api-keys)...");
         let path = "/api-keys";
         let url = format!("{}{}", CLOB_API_BASE, path);
-
         let builder = self.client.get(&url);
         let builder = self.add_auth_headers(builder, "GET", path, "")?;
-
-        let response = builder
-            .send()
-            .await
-            .context("Failed to send auth check request")?;
-
-        let status = response.status();
-        let headers = response.headers().clone();
-        let text = response.text().await.unwrap_or_default();
-
-        tracing::info!("Auth check: {} {} - response: {}", "GET", url, status);
-        tracing::info!("Auth check response body: {}", &text[..text.len().min(500)]);
-
-        if let Some(req_id) = headers.get("x-request-id") {
-            tracing::info!("Auth check x-request-id: {:?}", req_id);
+        let resp = builder.send().await;
+        match resp {
+            Ok(r) => {
+                let status = r.status();
+                let body = r.text().await.unwrap_or_default();
+                tracing::info!("[AUTH DIAG] GET /api-keys -> HTTP {} body={}", status, &body[..body.len().min(500)]);
+                if status.is_success() {
+                    results.push(format!("L2 auth: OK ({})", status));
+                } else {
+                    results.push(format!("L2 auth: FAILED HTTP {} - {}", status, &body[..body.len().min(200)]));
+                }
+            }
+            Err(e) => {
+                tracing::error!("[AUTH DIAG] GET /api-keys -> FAILED: {:?}", e);
+                results.push(format!("L2 auth: FAILED ({})", e));
+            }
         }
 
-        if !status.is_success() {
-            anyhow::bail!(
-                "Auth check failed: HTTP {} - {}  (api_key={}...{}, address={})",
-                status.as_u16(),
-                text,
-                &creds.api_key[..creds.api_key.len().min(8)],
-                &creds.api_key[creds.api_key.len().saturating_sub(4)..],
-                &creds.wallet_address,
-            );
+        // Step 3: Try GET /orders (another authenticated endpoint)
+        tracing::info!("[AUTH DIAG] Step 3: Testing L2 auth (GET /orders)...");
+        let path = "/orders";
+        let url = format!("{}{}", CLOB_API_BASE, path);
+        let builder = self.client.get(&url);
+        let builder = self.add_auth_headers(builder, "GET", path, "")?;
+        let resp = builder.send().await;
+        match resp {
+            Ok(r) => {
+                let status = r.status();
+                let body = r.text().await.unwrap_or_default();
+                tracing::info!("[AUTH DIAG] GET /orders -> HTTP {} body={}", status, &body[..body.len().min(500)]);
+                if status.is_success() {
+                    results.push(format!("GET /orders: OK ({})", status));
+                } else {
+                    results.push(format!("GET /orders: FAILED HTTP {} - {}", status, &body[..body.len().min(200)]));
+                }
+            }
+            Err(e) => {
+                tracing::error!("[AUTH DIAG] GET /orders -> FAILED: {:?}", e);
+                results.push(format!("GET /orders: FAILED ({})", e));
+            }
         }
 
-        Ok(text)
+        let summary = results.join(" | ");
+        tracing::info!("[AUTH DIAG] Summary: {}", &summary);
+        tracing::info!(
+            "[AUTH DIAG] Credentials: api_key={}...{}, address={}, secret_len={}, passphrase_len={}",
+            &creds.api_key[..creds.api_key.len().min(8)],
+            &creds.api_key[creds.api_key.len().saturating_sub(4)..],
+            &creds.wallet_address,
+            creds.secret.len(),
+            creds.passphrase.len(),
+        );
+
+        if summary.contains("L2 auth: FAILED") {
+            anyhow::bail!("Auth diagnostic failed: {}", summary);
+        }
+
+        Ok(summary)
     }
 
     /// Get the current order book for a token
