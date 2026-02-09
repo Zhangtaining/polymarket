@@ -16,7 +16,7 @@ use crate::config::Config;
 use crate::events::{HealthEvent, SnapshotEvent};
 use crate::logger::JsonlLogger;
 use crate::services::{BinanceBookService, ChainlinkService, ClobClient, ClobCredentials, PolymarketService, SignalService, TradeService};
-use crate::tui::App;
+use crate::tui::{App, TuiLogBuffer, TuiLogLayer};
 
 #[derive(Parser, Debug)]
 #[command(name = "polymarket-monitor")]
@@ -47,7 +47,9 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let dry_run = args.dry_run && !args.no_dry_run;
 
-    // Initialize tracing: in TUI mode write logs to file so they don't mess up the terminal UI
+    // Initialize tracing: file logs + in-memory buffer for TUI display
+    let log_buffer = TuiLogBuffer::new();
+
     let (writer, _tracing_guard) = if args.headless {
         tracing_appender::non_blocking(std::io::stderr())
     } else {
@@ -55,15 +57,24 @@ async fn main() -> Result<()> {
         let file_appender = tracing_appender::rolling::daily("data/logs", "polymarket.log");
         tracing_appender::non_blocking(file_appender)
     };
-    tracing_subscriber::fmt()
-        .with_writer(writer)
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("polymarket_monitor=info".parse().unwrap())
-                .add_directive("tokio_tungstenite=warn".parse().unwrap())
-                .add_directive("tungstenite=warn".parse().unwrap()),
-        )
-        .init();
+
+    let env_filter = tracing_subscriber::EnvFilter::from_default_env()
+        .add_directive("polymarket_monitor=debug".parse().unwrap())
+        .add_directive("tokio_tungstenite=warn".parse().unwrap())
+        .add_directive("tungstenite=warn".parse().unwrap());
+
+    {
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(writer)
+            )
+            .with(TuiLogLayer::new(log_buffer.clone()))
+            .init();
+    }
 
     // Load config
     let config = Config::load()?;
@@ -271,7 +282,7 @@ async fn main() -> Result<()> {
         tokio::signal::ctrl_c().await?;
     } else {
         // Run TUI
-        let mut app = App::new(binance.clone(), polymarket.clone(), chainlink.clone(), signal.clone(), trade.clone(), dry_run);
+        let mut app = App::new(binance.clone(), polymarket.clone(), chainlink.clone(), signal.clone(), trade.clone(), log_buffer.clone(), dry_run);
         app.run().await?;
     }
 

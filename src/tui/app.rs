@@ -19,6 +19,7 @@ use tokio::sync::mpsc;
 
 use crate::events::TradeSide;
 use crate::services::{BinanceBookService, ChainlinkService, PolymarketService, SignalService, TradeService};
+use super::log_buffer::TuiLogBuffer;
 
 pub enum TuiCommand {
     BuyYes,
@@ -41,6 +42,7 @@ pub struct App {
     trade: Arc<TradeService>,
     command_tx: mpsc::Sender<TuiCommand>,
     command_rx: mpsc::Receiver<TuiCommand>,
+    log_buffer: TuiLogBuffer,
     dry_run: bool,
 }
 
@@ -51,6 +53,7 @@ impl App {
         chainlink: Arc<ChainlinkService>,
         signal: Arc<SignalService>,
         trade: Arc<TradeService>,
+        log_buffer: TuiLogBuffer,
         dry_run: bool,
     ) -> Self {
         let (tx, rx) = mpsc::channel(100);
@@ -62,6 +65,7 @@ impl App {
             trade,
             command_tx: tx,
             command_rx: rx,
+            log_buffer,
             dry_run,
         }
     }
@@ -151,7 +155,8 @@ impl App {
                 Constraint::Length(7),   // Polymarket panel
                 Constraint::Length(6),   // Signal panel
                 Constraint::Length(6),   // Trading config panel
-                Constraint::Min(6),      // Actions log (flexible)
+                Constraint::Min(4),      // Actions log (flexible)
+                Constraint::Min(6),      // Logs console (flexible)
                 Constraint::Length(10),  // Hotkeys help
             ])
             .split(f.size());
@@ -162,7 +167,8 @@ impl App {
         self.render_signal_panel(f, chunks[3]);
         self.render_trading_panel(f, chunks[4]);
         self.render_actions_panel(f, chunks[5]);
-        self.render_help_panel(f, chunks[6]);
+        self.render_logs_panel(f, chunks[6]);
+        self.render_help_panel(f, chunks[7]);
     }
 
     fn render_header(&self, f: &mut Frame, area: Rect) {
@@ -386,6 +392,33 @@ impl App {
 
         let list = List::new(items)
             .block(Block::default().borders(Borders::ALL).title("Actions (your recent activity)"));
+
+        f.render_widget(list, area);
+    }
+
+    fn render_logs_panel(&self, f: &mut Frame, area: Rect) {
+        let entries = self.log_buffer.get_entries();
+        // Show only the most recent entries that fit
+        let visible_height = area.height.saturating_sub(2) as usize; // subtract border
+        let skip = entries.len().saturating_sub(visible_height);
+        let items: Vec<ListItem> = entries
+            .iter()
+            .skip(skip)
+            .map(|e| {
+                let line = e.format_short();
+                let style = match e.level {
+                    tracing::Level::ERROR => Style::default().fg(Color::Red),
+                    tracing::Level::WARN  => Style::default().fg(Color::Yellow),
+                    tracing::Level::INFO  => Style::default().fg(Color::White),
+                    tracing::Level::DEBUG => Style::default().fg(Color::DarkGray),
+                    _                     => Style::default().fg(Color::DarkGray),
+                };
+                ListItem::new(line).style(style)
+            })
+            .collect();
+
+        let list = List::new(items)
+            .block(Block::default().borders(Borders::ALL).title("Logs (tracing output)"));
 
         f.render_widget(list, area);
     }
