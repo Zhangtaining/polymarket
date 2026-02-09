@@ -81,12 +81,21 @@ impl ClobClient {
         let creds = self.credentials.as_ref().context("No credentials configured")?;
 
         // Message format: timestamp + method + path + body
+        // Must match: https://github.com/Polymarket/py-clob-client/blob/main/py_clob_client/signing/hmac.py
         let message = format!("{}{}{}{}", timestamp, method, path, body);
 
         // Decode URL-safe base64 secret (Polymarket uses URL-safe base64)
         use base64::{engine::general_purpose::URL_SAFE, Engine};
         let secret_bytes = URL_SAFE.decode(&creds.secret)
             .context("Failed to decode API secret")?;
+
+        tracing::debug!(
+            "HMAC sign: message='{}{}{}{}' (body_len={}), secret_bytes_len={}",
+            timestamp, method, path,
+            if body.len() > 80 { &body[..80] } else { body },
+            body.len(),
+            secret_bytes.len(),
+        );
 
         // Create HMAC
         let mut mac = HmacSha256::new_from_slice(&secret_bytes)
@@ -113,12 +122,16 @@ impl ClobClient {
         let timestamp = chrono::Utc::now().timestamp().to_string();
         let signature = self.sign_request(&timestamp, method, path, body)?;
 
-        tracing::warn!(
-            "DEBUG AUTH: POLY_API_KEY={}, POLY_PASSPHRASE={}, POLY_ADDRESS={}, timestamp={}",
-            &creds.api_key,
-            &creds.passphrase,
+        tracing::info!(
+            "AUTH headers: method={} path={} timestamp={} api_key={}...{} address={} sig={}...{}",
+            method,
+            path,
+            &timestamp,
+            &creds.api_key[..creds.api_key.len().min(8)],
+            &creds.api_key[creds.api_key.len().saturating_sub(4)..],
             &creds.wallet_address,
-            &timestamp
+            &signature[..signature.len().min(8)],
+            &signature[signature.len().saturating_sub(4)..],
         );
 
         builder = builder
@@ -129,6 +142,48 @@ impl ClobClient {
             .header("POLY_SIGNATURE", &signature);
 
         Ok(builder)
+    }
+
+    /// Lightweight auth check: call GET /api-keys to verify credentials work.
+    /// Returns Ok(response_body) on success, or the error details on failure.
+    pub async fn check_auth(&self) -> Result<String> {
+        let creds = self.credentials.as_ref().context("No credentials configured")?;
+
+        // GET /api-keys is a simple authenticated endpoint
+        let path = "/api-keys";
+        let url = format!("{}{}", CLOB_API_BASE, path);
+
+        let builder = self.client.get(&url);
+        let builder = self.add_auth_headers(builder, "GET", path, "")?;
+
+        let response = builder
+            .send()
+            .await
+            .context("Failed to send auth check request")?;
+
+        let status = response.status();
+        let headers = response.headers().clone();
+        let text = response.text().await.unwrap_or_default();
+
+        tracing::info!("Auth check: {} {} - response: {}", "GET", url, status);
+        tracing::info!("Auth check response body: {}", &text[..text.len().min(500)]);
+
+        if let Some(req_id) = headers.get("x-request-id") {
+            tracing::info!("Auth check x-request-id: {:?}", req_id);
+        }
+
+        if !status.is_success() {
+            anyhow::bail!(
+                "Auth check failed: HTTP {} - {}  (api_key={}...{}, address={})",
+                status.as_u16(),
+                text,
+                &creds.api_key[..creds.api_key.len().min(8)],
+                &creds.api_key[creds.api_key.len().saturating_sub(4)..],
+                &creds.wallet_address,
+            );
+        }
+
+        Ok(text)
     }
 
     /// Get the current order book for a token
@@ -193,15 +248,21 @@ impl ClobClient {
 
         let builder = self.add_auth_headers(builder, "POST", path, &body)?;
 
+        tracing::debug!("Order request body: {}", &body);
+
         let response = builder
             .send()
             .await
             .context("Failed to send order request")?;
 
         let status = response.status();
+        let resp_headers = response.headers().clone();
         let response_text = response.text().await.unwrap_or_default();
 
-        tracing::debug!("Order response: {} - {}", status, response_text);
+        tracing::info!("Order response: HTTP {} - {}", status, &response_text[..response_text.len().min(500)]);
+        if let Some(req_id) = resp_headers.get("x-request-id") {
+            tracing::info!("Order x-request-id: {:?}", req_id);
+        }
 
         if !status.is_success() {
             // Try to parse error response

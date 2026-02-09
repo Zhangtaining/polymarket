@@ -15,7 +15,7 @@ use tokio::time::{interval, Duration};
 use crate::config::Config;
 use crate::events::{HealthEvent, SnapshotEvent};
 use crate::logger::JsonlLogger;
-use crate::services::{BinanceBookService, ChainlinkService, ClobCredentials, PolymarketService, SignalService, TradeService};
+use crate::services::{BinanceBookService, ChainlinkService, ClobClient, ClobCredentials, PolymarketService, SignalService, TradeService};
 use crate::tui::App;
 
 #[derive(Parser, Debug)]
@@ -113,6 +113,16 @@ async fn main() -> Result<()> {
         if config.polymarket.wallet_address.is_empty() { tracing::warn!("  - Missing: wallet_address"); }
         None
     };
+
+    // Run a quick auth check before starting services
+    if let Some(ref creds) = clob_credentials {
+        tracing::info!("Running CLOB API auth check...");
+        let test_client = ClobClient::new(Some(creds.clone()));
+        match test_client.check_auth().await {
+            Ok(body) => tracing::info!("Auth check PASSED: {}", &body[..body.len().min(200)]),
+            Err(e) => tracing::error!("Auth check FAILED: {:?}", e),
+        }
+    }
 
     let trade = Arc::new(TradeService::new(
         config.trading.clone(),
